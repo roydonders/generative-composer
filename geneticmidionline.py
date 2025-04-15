@@ -1,19 +1,20 @@
 import random
 import os
-from music21 import stream, note, chord, environment
+import webbrowser
+from music21 import stream, note, chord, midi
 import http.server
 import socketserver
 
-# Setup LilyPond path for exporting MusicXML (if needed)
-us = environment.UserSettings()
-
-# Path for generated MusicXML files
-musicxml_path = 'output.musicxml'
+# Path for generated MIDI files
+midi_path = 'output.mid'
 
 
-# Function to generate MusicXML from a sequence
-def generate_musicxml(sequence, filename='output.musicxml'):
+# Function to generate MIDI from a sequence
+def generate_midi(sequence, filename='output.mid'):
+    # Create a music21 stream
     s = stream.Stream()
+
+    # Convert the sequence to music21 notes/chords
     for p in sequence:
         if p is None:
             s.append(note.Rest())
@@ -21,7 +22,9 @@ def generate_musicxml(sequence, filename='output.musicxml'):
             s.append(note.Note(p))
         elif isinstance(p, list):  # chords can be a list of pitches
             s.append(chord.Chord(p))
-    s.write('musicxml', fp=filename)
+
+    # Write the stream as a MIDI file
+    s.write('midi', fp=filename)
 
 
 # Function to generate a random melody (or evolved MIDI sequence)
@@ -31,10 +34,10 @@ def generate_random_melody():
 
 
 # Genetic Algorithm to evolve the sequence
-def evolve_population(population_size=4, mutation_rate=0.1):
+def evolve_population(population_size=4, mutation_rate=0.1, generations=5):
     population = [generate_random_melody() for _ in range(population_size)]
 
-    for generation in range(5):  # Number of generations (can be adjusted)
+    for generation in range(generations):  # Number of generations
         print(f"Generation {generation + 1}:")
 
         # Select two parents
@@ -55,12 +58,12 @@ def evolve_population(population_size=4, mutation_rate=0.1):
         # Only keep the best population_size sequences
         population = sorted(population, key=lambda seq: evaluate_fitness(seq))[:population_size]
 
-        # Generate MusicXML for each candidate in the population
+        # Generate MIDI for each candidate in the population
         for i, candidate in enumerate(population):
-            musicxml_file = f'candidate_{i + 1}.musicxml'
-            generate_musicxml(candidate, musicxml_file)
+            midi_file = f'candidate_{i + 1}.mid'
+            generate_midi(candidate, midi_file)
 
-        print("MusicXML files generated for each candidate.")
+        print("MIDI files generated for each candidate.")
 
     return population
 
@@ -77,10 +80,15 @@ def start_http_server(port=8000):
     Handler = http.server.SimpleHTTPRequestHandler
     httpd = socketserver.TCPServer(("", port), Handler)
     print(f"Serving at http://localhost:{port}")
+
+    # Automatically open the index.html file in the default web browser
+    webbrowser.open(f'http://localhost:{port}/index.html')
+
     httpd.serve_forever()
 
 
-# Start evolving the population and serving the MusicXML files
+# Start evolving the population and serving the MIDI files
 if __name__ == "__main__":
     evolve_population()  # Evolve sequences
-    start_http_server()  # Start the server to serve the MusicXML files
+    start_http_server()  # Start the server to serve the MIDI files
+

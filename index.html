@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Sheet Music Viewer</title>
+    <script src="https://unpkg.com/opensheetmusicdisplay/build/opensheetmusicdisplay.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tonejs/midi"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            text-align: center;
+            padding: 20px;
+        }
+        #score-container {
+            border: 1px solid #ccc;
+            margin-top: 20px;
+            height: 300px;
+        }
+        .buttons {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎼 Sheet Music Viewer</h1>
+
+    <!-- Buttons to choose between candidates -->
+    <button onclick="loadSheetMusic(1)">Candidate 1</button>
+    <button onclick="loadSheetMusic(2)">Candidate 2</button>
+    <button onclick="loadSheetMusic(3)">Candidate 3</button>
+    <button onclick="loadSheetMusic(4)">Candidate 4</button>
+
+    <div id="score-container"></div>
+
+    <div class="buttons">
+        <button onclick="playMusic()">Play</button>
+        <button onclick="downloadMIDI()">Download MIDI</button>
+    </div>
+
+    <script>
+        const osmd = new opensheetmusicdisplay.OpenSheetMusicDisplay("score-container");
+
+        let currentMIDI = '';
+
+        // Function to load MusicXML and display it
+        function loadSheetMusic(candidateNumber) {
+            const midiFile = `candidate_${candidateNumber}.mid`;
+
+            fetch(midiFile)
+                .then(response => response.arrayBuffer())
+                .then(midiData => {
+                    currentMIDI = midiData;
+                    const midi = new Midi(midiData);
+                    osmd.load(midi.toMusicXML()).then(() => {
+                        osmd.render();
+                    });
+                });
+        }
+
+        // Function to play the current MIDI file
+        function playMusic() {
+            if (!currentMIDI) return alert('Please select a candidate first.');
+
+            const midi = new Midi(currentMIDI);
+            const player = new Tone.Player(midi.toArray()).toDestination();
+            player.start();
+        }
+
+        // Function to download the current MIDI file
+        function downloadMIDI() {
+            if (!currentMIDI) return alert('Please select a candidate first.');
+
+            const blob = new Blob([currentMIDI], { type: 'audio/midi' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'candidate_music.mid';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+    </script>
+</body>
+</html>
