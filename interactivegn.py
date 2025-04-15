@@ -1,124 +1,110 @@
-from p5 import *
-import math
+import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib.widgets import Button
+import matplotlib.patches as patches
 from population import Population
 
-pop = None
-cells = []
-hovered_indiv = None
-population_size = 100  # Define your population size
-resolution = 50        # Assuming resolution is a global variable used for phenotype rendering
+# Ensure interactive matplotlib
+matplotlib.use('TkAgg')
 
 
-def settings():
-    size(int(display_width * 0.9), int(display_height * 0.8), P2D)
-    smooth(8)
+# Grid layout calculation
 
-
-def setup():
-    global pop, cells
-    pop = Population(population_size=population_size)
-    cells = calculate_grid(population_size, 0, 0, width, height - 30, 30, 10, 30, True)
-    #text_size(constrain(cells[0][0].z * 0.15, 11, 14))
-
-
-def draw():
-    global hovered_indiv
-    background(235)
-    hovered_indiv = None
-    row, col = 0, 0
-
-    for i in range(pop.get_size()):
-        x = cells[row][col].x
-        y = cells[row][col].y
-        d = cells[row][col].z
-
-        no_stroke()
-        fill(0)
-
-        if x < mouse_x < x + d and y < mouse_y < y + d:
-            hovered_indiv = pop.get_indiv(i)
-            rect((x - 1, y - 1), d + 2, d + 2)
-
-        if pop.get_indiv(i).get_fitness() > 0:
-            rect((x - 3, y - 3), d + 6, d + 6)
-
-        # Draw phenotype
-        image(pop.get_indiv(i).get_phenotype(resolution), (x, y), (d, d))
-
-        # Draw fitness text
-        fill(0)
-        text_align("CENTER", "TOP")
-        text(f"{pop.get_indiv(i).get_fitness():.2f}", (x + d / 2, y + d + 5))
-
-        col += 1
-        if col >= len(cells[row]):
-            row += 1
-            col = 0
-
-    # Control instructions
-    fill(128)
-    text_size(14)
-    text_align("LEFT", "BOTTOM")
-    text("Controls:     [click over indiv] set as preferred     [enter] evolve     [r] reset     [e] export individ hovered by the cursor", (30, height - 30))
-
-
-def key_released(event):
-    global hovered_indiv
-    if event.key == 'ENTER':
-        pop.evolve()
-    elif event.key == ' ':
-        pop.evolve()
-    elif event.key == 'r':
-        pop.initialize()
-    elif event.key == 'e':
-        if hovered_indiv is not None:
-            hovered_indiv.export()
-    else:
-        if hovered_indiv is not None:
-            fit = hovered_indiv.get_fitness()
-            if event.key == 'UP':
-                fit = min(fit + 0.1, 1)
-            elif event.key == 'DOWN':
-                fit = max(fit - 0.1, 0)
-            elif event.key == 'RIGHT':
-                fit = 1
-            elif event.key == 'LEFT':
-                fit = 0
-            hovered_indiv.set_fitness(fit)
-
-
-def mouse_released():
-    global hovered_indiv
-    if hovered_indiv is not None:
-        hovered_indiv.set_fitness(1 if hovered_indiv.get_fitness() < 1 else 0)
-
-
-def calculate_grid(cells, x, y, w, h, margin_min, gutter_h, gutter_v, align_top):
-    cols, rows, cell_size = 0, 0, 0
-    while cols * rows < cells:
+def calculate_grid(n_cells, width, height, margin=30, gutter_h=10, gutter_v=30):
+    cols = 0
+    rows = 0
+    cell_size = 0
+    while cols * rows < n_cells:
         cols += 1
-        cell_size = ((w - margin_min * 2) - (cols - 1) * gutter_h) / cols
-        rows = math.floor((h - margin_min * 2) / (cell_size + gutter_v))
-    if cols * (rows - 1) >= cells:
+        cell_size = ((width - margin * 2) - (cols - 1) * gutter_h) / cols
+        rows = int((height - margin * 2) / (cell_size + gutter_v))
+
+    if cols * (rows - 1) >= n_cells:
         rows -= 1
-    margin_hor_adjusted = ((w - cols * cell_size) - (cols - 1) * gutter_h) / 2
-    if rows == 1 and cols > cells:
-        margin_hor_adjusted = ((w - cells * cell_size) - (cells - 1) * gutter_h) / 2
-    margin_ver_adjusted = ((h - rows * cell_size) - (rows - 1) * gutter_v) / 2
-    if align_top:
-        margin_ver_adjusted = min(margin_hor_adjusted, margin_ver_adjusted)
+
+    margin_hor_adjusted = ((width - cols * cell_size) - (cols - 1) * gutter_h) / 2
+    margin_ver_adjusted = ((height - rows * cell_size) - (rows - 1) * gutter_v) / 2
 
     positions = []
     for row in range(rows):
-        row_y = y + margin_ver_adjusted + row * (cell_size + gutter_v)
-        row_positions = []
+        row_y = margin_ver_adjusted + row * (cell_size + gutter_v)
         for col in range(cols):
-            col_x = x + margin_hor_adjusted + col * (cell_size + gutter_h)
-            row_positions.append(Vector(col_x, row_y, cell_size))
-        positions.append(row_positions)
-
+            col_x = margin_hor_adjusted + col * (cell_size + gutter_h)
+            positions.append((col_x, row_y, cell_size))
     return positions
+
+# Main visualization
+
+def draw_population(population):
+    width, height = 1200, 800
+    fig, ax = plt.subplots(figsize=(width / 100, height / 100))
+    plt.subplots_adjust(bottom=0.1)
+    ax.set_xlim(0, width)
+    ax.set_ylim(height, 0)
+    ax.axis('off')
+
+    cells = calculate_grid(len(population.members), width, height - 50)
+    hovered_indiv = [None]  # Use list to allow mutation in closures
+
+    def draw_all():
+        ax.clear()
+        ax.set_xlim(0, width)
+        ax.set_ylim(height, 0)
+        ax.axis('off')
+        for i, (x, y, d) in enumerate(cells):
+            if i >= len(population.members):
+                break
+            indiv = population.members[i]
+            indiv.calculate_points()
+            pts = np.array(indiv.points)
+            ax.plot(pts[:, 0] * (d / 600) + x + d / 2, pts[:, 1] * (d / 600) + y + d / 2, lw=0.5, color='black')
+            ax.text(x + d / 2, y + d + 10, f"{indiv.fitness:.2f}", ha='center', fontsize=8)
+        fig.canvas.draw_idle()
+
+    def on_click(event):
+        for i, (x, y, d) in enumerate(cells):
+            if x < event.x < x + d and y < event.y < y + d:
+                hovered_indiv[0] = population.members[i]
+                f = hovered_indiv[0].fitness
+                hovered_indiv[0].fitness = 0 if f >= 1 else 1
+                draw_all()
+                break
+
+    def on_key(event):
+        nonlocal population
+        print(f"Key pressed: {event.key}")
+        key = event.key.lower()
+
+        if key in ['enter', ' ']:
+            population.evolve()
+            draw_all()
+        elif key == 'r':
+            newpopulation = Population(16)
+            #todo fix hardcoding
+
+            draw_all(newpopulation)
+        elif key == 'e' and hovered_indiv[0]:
+            hovered_indiv[0].export()
+        elif hovered_indiv[0]:
+            fit = hovered_indiv[0].fitness
+            if key == 'up':
+                hovered_indiv[0].fitness = min(fit + 0.1, 1)
+            elif key == 'down':
+                hovered_indiv[0].fitness = max(fit - 0.1, 0)
+            elif key == 'right':
+                hovered_indiv[0].fitness = 1
+            elif key == 'left':
+                hovered_indiv[0].fitness = 0
+            draw_all()
+
+    fig.canvas.mpl_connect('button_release_event', on_click)
+    fig.canvas.mpl_connect('key_release_event', on_key)
+    draw_all()
+    ax.text(30, height - 10, "Controls: [click over indiv] set as preferred     [enter] evolve     [r] reset     [e] export hovered", fontsize=10)
+    plt.show()
 
 
 if __name__ == '__main__':
-    run(renderer='skia')
+    pop = Population(16)
+    draw_population(pop)
