@@ -1,269 +1,143 @@
-""" Genetic Algorithm for music generation. Takes a user defined key and tempo and evolves a melody according to those """
+import pygame
 import random
+import os
 from midiutil import MIDIFile
+import numpy as np
 
-POPULATION_SIZE = 10
-MAX_GENERATIONS = 100
-MUTATION_RATE = 0.05
-MAX_FITNESS = 30
+# Basic setup for pygame and GUI
+pygame.init()
 
-# MIDI information will be encoded by list of numbers corresponding to note codes
-# Dictionary containing the patterns of tones and semitones that a given scale follows (this is for two octaves)
-scaleStructures = {
-    "major": [2, 2, 1, 2, 2, 2, 1] * 2,
-    "minor": [2, 1, 2, 2, 1, 2, 2] * 2,
-    "major pentatonic": [2, 2, 3, 2, 3] * 2,
-    "minor pentatonic": [3, 2, 2, 3, 2] * 2,
-    }
+# Define some constants
+SCREEN_WIDTH = 600
+SCREEN_HEIGHT = 400
+WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
 
-# Dictionary containing the MIDI code for every note starting from A below middle C
-scales = {}
-a3 = 45
-currentCode = a3
-for i in "abcdefg":
-    scales[i] = currentCode
-    # B and E do not have sharps so skip them for this part
-    if i != "b" and i != "e":
-        scales[f"{i}#"] = currentCode + 1
-        currentCode += 2
-    # C and F do not have flats so skip them for this part
-    if i != "c" and i != "f":
-        scales[f"{i}b"] = currentCode - 1
-        currentCode += 2
-    else:
-        currentCode += 1
+# MIDI sequence data (for example, pitch numbers)
+MIDI_NOTE_RANGE = (48, 84)  # Note range (MIDI notes from 48 to 84)
+MIDI_DURATION_CHOICES = [0.5, 0.75, 1]  # Possible durations for each note
 
-def main():
-    """ Main function for running all helper functions and handling user input """
-    # User entering their preferences
-    print("Which scale?")
+# Genetic algorithm parameters
+POP_SIZE = 50  # Population size
+MUTATION_RATE = 0.1  # Mutation rate
+CROSSOVER_RATE = 0.7  # Crossover rate
+NUM_GENERATIONS = 100  # Number of generations to evolve
 
-    scaleOptions = [scale for scale in scaleStructures.keys()]
+# Create the window
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+pygame.display.set_caption("Interactive Genetic Algorithm for MIDI Evolution")
 
-    for i, option in enumerate(scaleOptions):
-        print(f"{i+1}. {option.title()}?")
-    key = input(" ").lower().strip()
+# Fonts for the GUI
+font = pygame.font.Font(None, 36)
 
-    while key not in scaleStructures.keys():
-        print("Invalid.")
-        for i, option in enumerate(scaleOptions):
-            print(f"{i+1}. {option.title()}?")
-        key = input().lower().strip()
+# Basic MIDI sequence generator for testing
+def generate_random_midi_sequence(length=16):
+    return [random.randint(MIDI_NOTE_RANGE[0], MIDI_NOTE_RANGE[1]) for _ in range(length)]
 
-    root = input("Enter the root of your scale: ").lower().strip()
-    while root not in scales.keys():
-        root = input("Invalid. Enter the root of your scale: ").lower().strip()
+# Fitness function: compares a candidate sequence to the reference
+def fitness(candidate, reference):
+    score = 0
+    for c_note, r_note in zip(candidate, reference):
+        score -= abs(c_note - r_note)  # Inverse distance score (closer notes are better)
+    return score
 
-    tempo = input("Pick a tempo (integer) between 30 and 300 bpm: ").strip()
-    while not isValidTempo(tempo):
-        tempo = input("Invalid. Pick a tempo (integer) between 30 and 300 bpm: ").strip()
-    tempo = int(tempo)
+# Mutation: randomly change a note in the sequence
+def mutate(sequence):
+    mutated_sequence = sequence[:]
+    if random.random() < MUTATION_RATE:
+        idx = random.randint(0, len(sequence) - 1)
+        mutated_sequence[idx] = random.randint(MIDI_NOTE_RANGE[0], MIDI_NOTE_RANGE[1])
+    return mutated_sequence
 
-    scale = buildScale(root, key)
-    res = runEvolution(MUTATION_RATE, scale)
+# Crossover: combine two sequences to create a child sequence
+def crossover(parent1, parent2):
+    if random.random() < CROSSOVER_RATE:
+        crossover_point = random.randint(1, len(parent1) - 1)
+        child = parent1[:crossover_point] + parent2[crossover_point:]
+        return child
+    return parent1  # No crossover, return parent1
 
-    for i in range(len(res)):
-        writeMidiToDisk(res[i], f"./out{i}.mid", tempo)
+# Generate the next generation using selection, crossover, and mutation
+def evolve_population(population, reference):
+    scores = [(ind, fitness(ind, reference)) for ind in population]
+    scores.sort(key=lambda x: x[1], reverse=True)  # Sort by fitness
 
-def buildScale(root, key):
-    """ Builds scale based on passed in root and key by accessing pattern and starting note dictionaries """
-    rootCode = scales[root]
-    scale = [rootCode]
-    pattern = scaleStructures[key]
-    currentCode = rootCode
+    # Create new population through crossover and mutation
+    new_population = []
+    for i in range(POP_SIZE // 2):
+        parent1 = scores[i][0]
+        parent2 = scores[i + 1][0]
 
-    for i, j in enumerate(pattern):
-        currentCode += j
-        scale.append(currentCode)
-    return scale
+        # Crossover and mutation
+        child1 = crossover(parent1, parent2)
+        child2 = crossover(parent2, parent1)
 
-def generateGenome(scale):
-    """ Generates one note sequence """
-    return [[random.choice(scale) for x in range(16)] for y in range(8)]
+        new_population.append(mutate(child1))
+        new_population.append(mutate(child2))
 
-def generatePopulation(n, scale):
-    """ Generate n note sequences """
-    population = [generateGenome(scale) for x in range(n)]
-    return population
+    return new_population
 
-def fitnessFunction(genome):
-    """ Calculates fitness of a certain sequence based on smoothness and rhythm """
-
-    smoothnessWeight = 15
-    rhythmWeight = 5
-    harmonyWeight = 20
-
-    smoothnessScore = 0
-    rhythmScore = 0
-    harmonyScore = 0
-
-    # Table that assigns different values to different intervals (in semitones). Higher valued intervals will be picked more. Currently the 3rd and 5th are valued the highest, and penalizes repeated notes, tritones and sevenths
-    harmonyIntervalsTable = {0 : -20, 1 : 5, 2 : 5, 3 : 50, 4 : 50, 5 : 30, 6 : -10, 7 : 50, 8 : 10, 9 : 40, 10 : -2, 11 : -2, 12 : 10,
-                             13 : -5, 14 : 5, 15 : 5, 16 : 50, 17 : 50, 18 : 30, 19 : -10, 20 : 50, 21 : 10, 22 : 40, 23 : -2, 24 : -2, 25 : 10}
-
-    numRests = genome.count(None)
-    consecutiveRests = 0
-
-    for i, bar in enumerate(genome):
-
-        for j, note in enumerate(bar):
-
-            # We can only determine smoothness in melody if we aren't at the first note of the genome AND the preceding note isn't a rest
-            if j != 0 and note is not None and bar[j-1] is not None:
-                prevNote = bar[j-1]
-                # ABSOLUTE SMOOTHNESS CALCULATION
-                # Calculate how many semitones away this note is from the previous one
-                noteDifference = abs(note - prevNote)
-
-                # Add corresponding harmony score based on interval
-                harmonyScore += harmonyIntervalsTable[noteDifference]
-
-                # Penalize for repeating notes
-                if not noteDifference:
-                    smoothnessScore /= 10
-                elif noteDifference <= 2:
-                    smoothnessScore += 1
-
-                # Penalize the major 7th interval
-                elif noteDifference == 11:
-                    smoothnessScore /= 2
-                else:
-                    if noteDifference != 0:
-                        smoothnessScore += 1 / noteDifference
-
-                # RELATIVE SMOOTHNESS CALCULATION
-                # Relative pitch disregards the actual register of the note: if the notes are next to each other in the scale, then we can consider them being relaively smooth
-                # This algorithm only deals with notes in a two octave range so thats all we need to consider
-                if abs(note - (prevNote + 12)) == 1 or abs(note - (prevNote + 12)) == 2 or abs((note + 12) - prevNote) == 1 or abs((note + 12) - prevNote) == 2:
-                    smoothnessScore += 0.5
-
-
-            # Calculate number of consecutive rests there are
-            if j != 0 and note is None and bar[j-1] is None:
-                consecutiveRests += 1
-
-    # Penalizes any sequences that have too many rests
-    if numRests * 10 <= len(flatten(genome)):
-        rhythmScore += 10
-
-    penalty = 10
-    # We don't want too many consecutive rests
-    if consecutiveRests:
-        rhythmScore -= (consecutiveRests * penalty)
-
-    # Apply corresponding weights to scores in order to favour different characteristics
-    fitness = (smoothnessScore * smoothnessWeight) + (rhythmScore * rhythmWeight) + (harmonyScore * harmonyWeight)
-    return fitness
-
-def selectParents(population):
-    """ Selects two sequences from the population. Probability of being selected is weighted by the fitness score of each sequence """
-    parentA, parentB = random.choices(population, weights=[fitnessFunction(genome) for genome in population], k=2)
-    return parentA, parentB
-
-def crossoverFunction(parentA, parentB):
-    """ Performs single point crossover on two sequences """
-    # Merge each sequence into one contiguous string of notes by flattening the 2D array
-    noteStringA = flatten(parentA)
-    noteStringB = flatten(parentB)
-
-    if len(noteStringA) != len(noteStringB):
-        raise ValueError
-    elif len(parentA) < 2:
-        return parentA, parentB
-
-    # Pick random position of sequence to use as the single point
-    singlePoint = random.randint(1, len(noteStringA) - 1)
-    # Perform crossover
-    childAFlat = noteStringA[:singlePoint] + noteStringB[singlePoint:]
-    childBFlat = noteStringB[:singlePoint] + noteStringA[singlePoint:]
-
-    childA = []
-    childB = []
-
-    # Join the two children back into bars (A 2D array)
-    barLength = len(parentA[0])
-    sequenceLength = len(noteStringA)
-    start = 0
-    end = barLength
-    while end <= sequenceLength:
-        childA.append(childAFlat[start:end])
-        childB.append(childBFlat[start:end])
-        start = end
-        end += barLength
-    return childA, childB
-
-def mutateGenome(genome, mutationRate, scale):
-    """ Mutates an  sequence according to a mutation probability """
-    for i, bar in enumerate(genome):
-        for j, note in enumerate(bar):
-            if random.uniform(0,1) <= mutationRate:
-                    genome[i][j] = None if note is not None else random.choice(scale)
-    return genome
-
-def runEvolution(mutationRate, scale):
-    """ Runs genetic algorithm until a genome with the specified MAX_FITNESS score has been reached"""
-
-    population = generatePopulation(POPULATION_SIZE, scale)
-
-    nextGeneration = []
-    for i in range(MAX_GENERATIONS):
-
-        population = sorted(population, key=lambda genome: fitnessFunction(genome), reverse=True)
-
-        nextGeneration = population[0:2]
-
-        for j in range(int(len(population) / 2) - 1):
-            parentA, parentB = selectParents(population)
-            childA, childB = crossoverFunction(parentA, parentB)
-
-            childA = mutateGenome(childA, mutationRate, scale)
-            childB = mutateGenome(childB, mutationRate, scale)
-
-            nextGeneration += [childA, childB]
-
-        population = nextGeneration
-
-    population = sorted(population, key=lambda genome: fitnessFunction(genome), reverse=True)
-    return population
-
-def writeMidiToDisk(sequence, filename="out", userTempo=60):
-    """ Writes the generated sequence of numbers representing MIDI codes to a file with the specified filename """
-    time = 0
-    timeInterval = 0.25
+# Function to create and save a MIDI file
+def save_midi(sequence, filename="output"):
+    midi = MIDIFile(1)
     track = 0
-    channel = 0
-    tempo = userTempo
-    duration = 0
-    volume = 100
+    midi.addTrackName(track, 0, "Track 1")
+    midi.addTempo(track, 0, 120)  # 120 BPM
+    time = 0
 
-    midiFile = MIDIFile(1)
-    midiFile.addTempo(track, time, tempo)
-    fSequence = flatten(sequence)
-    for pitch in fSequence:
-        duration = random.choice([0.5, 0.75, 1])
-        if pitch is not None:
-            midiFile.addNote(track, channel, pitch, time, duration, volume)
-        timeInterval = random.choice([0.25, 0.5, 1])
-        time += timeInterval
+    for note in sequence:
+        midi.addNote(track, 0, note, time, 1, 100)  # 1 is the duration of the note
+        time += 1  # Each note is spaced by 1 time unit (quarter note)
 
+    with open(f"{filename}.mid", "wb") as f:
+        midi.writeFile(f)
 
-def flatten(arr):
-    """ Flattens a 2D array into a 1D array """
-    res = []
-    for i in arr:
-        if isinstance(i, int) or i is None:
-            return arr
-        for j in i:
-            res.append(j)
-    return res
+# GUI: Load reference MIDI, run the genetic algorithm, and evolve the sequence
+def run_gui():
+    running = True
+    clock = pygame.time.Clock()
 
-def isValidTempo(val):
-    """ Returns True if the value is a valid tempo (is an integer and is between 30 and 300 (bpm)) """
-    try:
-        val = int(val)
-    except:
-        return False
-    return val >= 30 and val <= 300
+    reference_sequence = []  # This will be populated when you load the reference file
+    population = [generate_random_midi_sequence() for _ in range(POP_SIZE)]
+    generation = 0
 
-if __name__ == "__main__":
-    main()
+    while running:
+        screen.fill(WHITE)
+
+        # Event handling
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_l:  # 'L' to load a reference MIDI file
+                    filename = "reference.mid"  # Change to user input or file dialog in a real app
+                    if os.path.exists(filename):
+                        reference_sequence = generate_random_midi_sequence()  # Replace with actual parsing
+                        print(f"Reference MIDI loaded: {filename}")
+                    else:
+                        print("No such file found.")
+                elif event.key == pygame.K_e:  # 'E' to evolve the population
+                    if reference_sequence:
+                        population = evolve_population(population, reference_sequence)
+                        generation += 1
+                        print(f"Generation {generation} evolved")
+                    else:
+                        print("No reference loaded.")
+
+                elif event.key == pygame.K_s:  # 'S' to save the best sequence as MIDI
+                    if reference_sequence:
+                        best_sequence = population[0]  # Take the top candidate
+                        save_midi(best_sequence, f"evolved_generation_{generation}")
+                        print(f"Saved evolved MIDI to 'evolved_generation_{generation}.mid'")
+
+        # Display instructions
+        text = font.render("Press L to Load Reference, E to Evolve, S to Save", True, BLACK)
+        screen.blit(text, (20, 20))
+
+        pygame.display.flip()
+        clock.tick(30)
+
+    pygame.quit()
+
+# Run the GUI
+run_gui()
