@@ -8,4 +8,7 @@
     <orderEntry type="jdk" jdkName="Python 3.9 virtualenv at C:\Users\timon\PycharmProjects\generative-composer\.venv" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
+  <component name="PackageRequirementsSettings">
+    <option name="removeUnused" value="true" />
+  </component>
 </module>

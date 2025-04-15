@@ -1,0 +1,6 @@
+MIDIUtil~=1.2.1
+p5~=0.8.4
+scipy~=1.13.1
+transformers~=4.52.0.dev0
+torchaudio==2.1.0+cu121
+audiocraft~=1.3.0
