@@ -15,6 +15,11 @@ tempo_bpm = 120                # Default tempo in beats per minute
 key_signature = "C"            # Default key signature
 generations = 0                # Counter for how many generations have been evolved
 is_paused = False              # Tracks playback state (pause/unpause)
+phrase_lengths = []            # Holds the length of each phrase (number of notes)
+phrase_starts = []             # Scale degree of the first note in each phrase
+phrase_ends = []               # Scale degree of the last note in each phrase
+rests = []                     # Holds the rests (whether they occur or not, and their lengths)
+
 
 # Setup music21 to show sheet music (assumes system default musicXML viewer)
 us = environment.UserSettings()
@@ -23,39 +28,110 @@ us = environment.UserSettings()
 pygame.init()
 pygame.mixer.init()
 
+
+# === Utility: Phrase-aware grouping ===
+def group_into_phrases(notes, rhythm, phrase_length=4):
+    """Group a flat list of notes into phrases of fixed length, preserving rests."""
+    phrases = []
+    current_phrase = []
+    current_rhythm = []
+    for note, rest in zip(notes, rhythm):
+        current_phrase.append(note)
+        current_rhythm.append(rest)
+        if len(current_phrase) >= phrase_length:
+            phrases.append((current_phrase, current_rhythm))
+            current_phrase = []
+            current_rhythm = []
+    if current_phrase:
+        phrases.append((current_phrase, current_rhythm))
+    return phrases
+
+
 # === Genetic Algorithm Functions ===
-def generate_random_melody(length):
-    """Generate a random melody in the key, with reduced usage of 4th and 7th scale degrees.
-    Melodies are generated in phrases of 4 notes."""
-    scale_obj = key.Key(key_signature)
-    scale_pitches = scale_obj.getPitches()
+def learn_phrasing(midi_stream):
+    """Extract the phrasing structure from the loaded MIDI stream."""
+    global phrase_lengths, phrase_starts, phrase_ends, rests
+    phrase_lengths = []
+    phrase_starts = []
+    phrase_ends = []
+    rests = []
 
-    # Weighted note selection to reduce frequency of scale degrees 4 and 7
-    weighted_notes = []
-    for pitch in scale_pitches:
-        scale_degree = scale_obj.getScaleDegreeFromPitch(pitch)
-        if scale_degree == 7:
-            weight = 0.2  # Rare use of 7th degree
-        elif scale_degree == 4:
-            weight = 0.5  # Less frequent use of 4th degree
-        else:
-            weight = 1.0
-        weighted_notes.extend([pitch.nameWithOctave] * int(weight * 10))
+    # Get the notes and rests
+    notes = []
+    rhythms = []
+    for element in midi_stream.flat.notes:
+        if isinstance(element, note.Note):
+            notes.append(element.nameWithOctave)
+            rhythms.append(element.quarterLength)
+        elif isinstance(element, note.Rest):
+            notes.append('rest')
+            rhythms.append(element.quarterLength)
 
-    # Group melody into phrases of 4 notes
+    # Check if we have any notes and rests
+    if not notes:
+        print("Warning: No notes or rests found in the MIDI file.")
+        return
+
+    print("Extracted notes and rhythms:", notes, rhythms)
+
+    phrases = group_into_phrases(notes, rhythms)
+
+    # Check if any phrases were found
+    if not phrases:
+        print("Warning: No phrases were found.")
+        return
+
+    for phrase, rhythm in phrases:
+        phrase_lengths.append(len(phrase))
+        phrase_starts.append(phrase[0])  # The first note/scale degree of the phrase
+        phrase_ends.append(phrase[-1])  # The last note/scale degree of the phrase
+        rests.append(any(n == 'rest' for n in phrase))  # Does the phrase contain a rest?
+
+    print("Learned phrase structures:")
+    print("Phrase lengths:", phrase_lengths)
+    print("Phrase starts:", phrase_starts)
+    print("Phrase ends:", phrase_ends)
+    print("Rests:", rests)
+
+
+
+def generate_melody_based_on_phrasing(length):
+    """Generate a melody based on the learned phrasing structure."""
     melody = []
-    while len(melody) < length:
-        phrase = [(random.choice(weighted_notes), random.choice([0.5, 1])) for _ in range(4)]
+    num_phrases = length // 4  # Approximate number of phrases
+    for i in range(num_phrases):
+        phrase_len = random.choice(phrase_lengths)  # Learn how long each phrase should be
+        phrase_start = random.choice(phrase_starts)  # Learn the starting note of the phrase
+        phrase_end = random.choice(phrase_ends)  # Learn the ending note of the phrase
+
+        # Construct a phrase with note-duration pairs
+        phrase = []
+        for _ in range(phrase_len - 1):
+            # Copy rhythm from the original reference structure
+            rhythm = random.choice(reference_rhythm)
+            phrase.append((random.choice([phrase_start, phrase_end]), rhythm))  # Use the learned rhythm
+
+        # Ensure the phrase ends with the learned end note
+        phrase.append((phrase_end, rhythm))
+
+        # Insert rests randomly within the phrase, if appropriate
+        if random.random() < 0.5:  # 50% chance to add a rest
+            rest_index = random.randint(0, len(phrase) - 1)
+            phrase.insert(rest_index, ('rest', rhythm))  # Add a rest with the same rhythm as the surrounding notes
+
         melody.extend(phrase)
+
     return melody[:length]
 
+
+
+
 def crossover(seq1, seq2):
-    """Perform crossover by slicing at a random point between phrases."""
     point = 4 * random.randint(1, len(seq1) // 4 - 1)
     return seq1[:point] + seq2[point:]
 
+
 def mutate(seq, rate=0.1):
-    """Randomly mutate notes and rhythms with a low probability, respecting phrasing."""
     scale_obj = key.Key(key_signature)
     scale_pitches = scale_obj.getPitches()
 
@@ -63,23 +139,27 @@ def mutate(seq, rate=0.1):
     for pitch in scale_pitches:
         scale_degree = scale_obj.getScaleDegreeFromPitch(pitch)
         if scale_degree == 7:
-            weight = 0.2
+            weight = 0.3
         elif scale_degree == 4:
-            weight = 0.5
+            weight = 0.6
         else:
             weight = 1.0
         weighted_notes.extend([pitch.nameWithOctave] * int(weight * 10))
 
-    # Mutate note or rhythm in phrased manner
-    return [
-        (
-            n if random.random() > rate else random.choice(weighted_notes),
-            d if random.random() > rate else random.choice([0.25, 0.5, 1])
-        ) for n, d in seq
-    ]
+    mutated = []
+    for n, d in seq:
+        if n == 'rest':  # Handle rest case separately
+            new_note = note.Rest(quarterLength=d) if random.random() > rate else note.Rest(quarterLength=random.choice([0.25, 0.5, 1]))
+        else:
+            new_note = n if random.random() > rate else random.choice(weighted_notes)
+            new_note = note.Note(new_note, quarterLength=d)  # Ensure it's a note object
+
+        mutated.append((new_note, d))  # Preserve rhythm by attaching it to the mutated note/rest
+
+    return mutated
+
 
 def fitness(sequence):
-    """Score a melody based on how well it matches the reference in pitch/rhythm, emphasizing phrases."""
     score = 0
     for i, ((p, d), rp, rd) in enumerate(zip(sequence, reference_sequence, reference_rhythm)):
         phrase_weight = 2 if i % 4 in [0, 3] else 1  # Emphasize start/end of phrase
@@ -89,14 +169,15 @@ def fitness(sequence):
             score += phrase_weight
     return -score
 
+
 def evolve_population():
-    """Run one generation of evolution and update GUI."""
     global current_evolved, generations
     if not reference_sequence:
         messagebox.showerror("Error", "No reference loaded.")
         return
 
-    population = current_evolved if current_evolved else [generate_random_melody(len(reference_sequence)) for _ in range(4)]
+    population = current_evolved if current_evolved else [generate_melody_based_on_phrasing(len(reference_sequence)) for
+                                                          _ in range(4)]
 
     offspring = []
     for i in range(len(population)):
@@ -112,7 +193,7 @@ def evolve_population():
     generations += 1
     listbox.delete(0, tk.END)
     for i in range(len(population)):
-        listbox.insert(tk.END, f"Gen {generations} - Melody {i+1}")
+        listbox.insert(tk.END, f"Gen {generations} - Melody {i + 1}")
     status_label.config(text=f"Evolved {generations} generations")
 
 # === MIDI Utilities ===
@@ -136,13 +217,17 @@ def play_pause():
         s.append(tempo.MetronomeMark(number=int(tempo_entry.get())))
         s.append(key.KeySignature(key.Key(key_signature).sharps))
         for p, d in melody:
-            s.append(note.Note(p, quarterLength=d))
+            if p == 'rest':  # Handle the rest case
+                s.append(note.Rest(quarterLength=d))  # Append a rest with the correct duration
+            else:  # Handle the note case
+                s.append(note.Note(p, quarterLength=d))  # Append a note with the correct pitch and duration
 
         file_path = f"temp_play.mid"
         s.write("midi", fp=file_path)
         pygame.mixer.music.load(file_path)
         pygame.mixer.music.play()
         is_paused = False
+
 
 def stop_playback():
     """Stop the MIDI playback."""
@@ -198,6 +283,7 @@ def load_midi():
         detected_key = score.analyze('key')
         key_signature = detected_key.tonic.name
 
+        learn_phrasing(score)  # Call the learn_phrasing function here
         melody = [n for n in score.parts[0].recurse().notes if isinstance(n, note.Note)]
         reference_sequence = [n.nameWithOctave for n in melody]
         reference_rhythm = [n.quarterLength for n in melody]
