@@ -64,7 +64,7 @@ POPULATION_SIZE: int = 5       # Number of individuals (melodies) in each genera
                                 # Reduced for faster evolution cycles.
 MUTATION_RATE: float = 0.15     # Probability of a gene (pitch/duration) within an individual undergoing mutation.
 CROSSOVER_RATE: float = 0.80    # Probability that two selected parent melodies will recombine to produce offspring.
-TOURNAMENT_SIZE: int = 4        # Number of individuals randomly selected for a tournament;
+TOURNAMENT_SIZE: int = 30        # Number of individuals randomly selected for a tournament;
                                 # the fittest among them becomes a parent. Adjusted for smaller population.
 
 # --- Musical Definitions ---
