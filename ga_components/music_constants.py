@@ -68,7 +68,7 @@ TOURNAMENT_SIZE: int = 4        # Number of individuals randomly selected for a 
                                 # the fittest among them becomes a parent. Adjusted for smaller population.
 
 # --- Musical Definitions ---
-MIN_OCTAVE: int = 3             # Default minimum octave for generated notes (e.g., C3).
+MIN_OCTAVE: int = 4             # Default minimum octave for generated notes (e.g., C3).
 MAX_OCTAVE: int = 5             # Default maximum octave for generated notes (e.g., B5).
 # Common rhythmic durations in quarter notes, used by MelodyGenerator.
 POSSIBLE_DURATIONS: List[float] = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0]
@@ -111,7 +111,7 @@ WEIGHT_MELODIC_CONTOUR_SIMILARITY: float = 1.0 # Bonus for matching the general 
 # --- Melody Generation Parameters (for MelodyGenerator.py) ---
 # These influence how the MelodyGenerator creates and mutates melodies.
 NOTES_PER_PHRASE_FALLBACK: int = 8  # Approx notes per phrase if not guided by reference.
-DEFAULT_PHRASE_DURATION_BEATS: float = 4.0 # Target phrase duration if not guided by reference.
+DEFAULT_PHRASE_DURATION_BEATS: float = 8.0 # Target phrase duration if not guided by reference.
 MAX_CONSECUTIVE_REPEATED_PITCHES: int = 3 # Max allowed before PENALTY_EXCESSIVE_REPETITION applies.
 REST_PROBABILITY_GENERATION: float = 0.08 # Chance of generating a rest instead of a note.
 REST_PROBABILITY_MUTATION: float = 0.04   # Chance of a note mutating into a rest.
