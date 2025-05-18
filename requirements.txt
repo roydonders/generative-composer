@@ -5,3 +5,9 @@ scipy~=1.13.1
 transformers~=4.52.0.dev0
 torchaudio==2.1.0+cu121
 audiocraft~=1.3.0
+pygame~=2.6.1
+music21~=8.3.0
+mido~=1.3.3
+gradio~=4.44.1
+pydub~=0.25.1
+certifi~=2025.1.31
