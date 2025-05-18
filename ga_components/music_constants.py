@@ -3,48 +3,54 @@
 Module: music_constants.py
 
 Purpose:
-This module serves as a central repository for all constants and type definitions
-used throughout the Genetic Algorithm music generation project. Consolidating
-these values here improves maintainability, readability, and allows for easier
-tuning of the algorithm's behavior and musical output.
+This module serves as a central repository for all constants, type definitions,
+and configuration parameters used throughout the Genetic Algorithm (GA) for music
+generation. Consolidating these values here enhances maintainability, readability,
+and allows for easier tuning of the algorithm's behavior and the musical
+characteristics of the generated output.
 
-It includes:
-- Type Aliases: For clear and consistent data structure definitions (e.g., MelodySequence).
-- Genetic Algorithm Parameters: Settings that control the evolutionary process
-  (e.g., population size, mutation rate).
-- Musical Definitions: Constants related to music theory and structure
-  (e.g., pitch ranges, common rhythms, scale definitions).
-- Fitness Function Weights: Coefficients that determine the importance of various
-  musical criteria in evaluating generated melodies.
-- Other Musical Constraints: Rules and preferences for melody generation
-  (e.g., maximum leap intervals, phrase characteristics).
+Key Sections:
+- Type Aliases: Define custom types for clarity and type checking (e.g., MelodySequence).
+- Genetic Algorithm Parameters: Control the core evolutionary process (e.g., population size).
+- Musical Definitions: Basic musical parameters like octave ranges and rhythmic units.
+- Fitness Function Weights: Crucial for guiding the evolution. These weights determine
+  the relative importance of various musical criteria when evaluating melodies.
+  They are categorized into reference-matching and intrinsic musicality.
+- Melody Generation Parameters: Control aspects of how new melodies are initially
+  created and mutated by the MelodyGenerator.
+- Other Musical Constraints: Define acceptable limits for musical features.
 """
 
 from typing import List, Tuple, Optional, Dict, TypedDict, Any
 
 # --- Type Aliases for Clarity ---
 
-# Represents a single musical event: a pitch (string like "C4" or None for a rest)
-# and its duration in quarter notes (float).
+# MelodyNote: Represents a single musical event.
+# It's a tuple containing:
+#   - Optional[str]: The pitch of the note as a string (e.g., "C4", "F#5").
+#                    None if the event is a rest.
+#   - float: The duration of the event in quarter notes (e.g., 1.0 for a quarter note, 0.5 for an eighth).
 MelodyNote = Tuple[Optional[str], float]
 
-# Represents a sequence of musical events (notes and rests), forming a melody or phrase.
+# MelodySequence: Represents a sequence of musical events (notes and rests),
+# effectively defining a melody or a musical phrase.
 MelodySequence = List[MelodyNote]
 
-# Defines the structure for storing analyzed information about a reference musical phrase.
-# This is used to guide the generation process and for fitness evaluation.
+# ReferencePhraseInfo: A TypedDict defining the structure for storing analyzed
+# information about a musical phrase, whether from a reference MIDI or an evolved melody.
+# This structure is used for comparative analysis in the fitness function.
 class ReferencePhraseInfo(TypedDict):
     """
-    A TypedDict representing the analyzed characteristics of a musical phrase.
+    TypedDict representing the analyzed characteristics of a musical phrase.
 
     Attributes:
         start_index (int): The starting index of this phrase within the original full melody sequence.
-        end_index (int): The ending index of this phrase within the original full melody sequence.
+        end_index (int): The ending index (inclusive) of this phrase.
         num_notes (int): The number of musical events (notes or rests) in this phrase.
-        duration_beats (float): The total duration of the phrase in beats.
-        character (str): The analyzed character of the phrase (e.g., "question", "answer", "neutral").
-        notes (MelodySequence): The sequence of notes and rests constituting the phrase.
-        # Potentially: start_tonal_function, end_tonal_function (if fully implemented)
+        duration_beats (float): The total duration of the phrase in beats (sum of quarter lengths).
+        character (str): Analyzed character (e.g., "question", "answer", "neutral").
+                         (Analysis performed by MusicUtils, can be used for advanced fitness).
+        notes (MelodySequence): The sequence of MelodyNote tuples constituting the phrase.
     """
     start_index: int
     end_index: int
@@ -52,103 +58,81 @@ class ReferencePhraseInfo(TypedDict):
     duration_beats: float
     character: str
     notes: MelodySequence
-    # The following were in the original PhraseInfo but not used in current analysis logic.
-    # Retained as comments for potential future expansion.
-    # start_tonal_function: Optional[str]
-    # end_tonal_function: Optional[str]
-
 
 # --- Genetic Algorithm Parameters ---
-POPULATION_SIZE: int = 50  # Number of individuals (melodies) in each generation.
-N_GENERATIONS: int = 50    # Total number of generations for the evolution (if running a fixed loop).
-MUTATION_RATE: float = 0.10 # Probability of a mutation occurring in an individual's gene (note/duration).
-CROSSOVER_RATE: float = 0.7 # Probability of two parents producing offspring.
-TOURNAMENT_SIZE: int = 5   # Number of individuals selected for a tournament in tournament selection.
+POPULATION_SIZE: int = 5       # Number of individuals (melodies) in each generation.
+                                # Reduced for faster evolution cycles.
+MUTATION_RATE: float = 0.15     # Probability of a gene (pitch/duration) within an individual undergoing mutation.
+CROSSOVER_RATE: float = 0.80    # Probability that two selected parent melodies will recombine to produce offspring.
+TOURNAMENT_SIZE: int = 4        # Number of individuals randomly selected for a tournament;
+                                # the fittest among them becomes a parent. Adjusted for smaller population.
 
 # --- Musical Definitions ---
-MIN_OCTAVE: int = 3        # Minimum octave for generated notes (e.g., C3).
-MAX_OCTAVE: int = 5        # Maximum octave for generated notes (e.g., B5).
-# Common rhythmic durations in quarter notes.
-POSSIBLE_DURATIONS: List[float] = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0] # Shortened for more variety. Added 0.75. Removed 3.0, 4.0.
+MIN_OCTAVE: int = 3             # Default minimum octave for generated notes (e.g., C3).
+MAX_OCTAVE: int = 5             # Default maximum octave for generated notes (e.g., B5).
+# Common rhythmic durations in quarter notes, used by MelodyGenerator.
+POSSIBLE_DURATIONS: List[float] = [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0]
 
-# Definitions of common scales by their interval patterns from the root (in semitones).
-SCALE_TYPES: Dict[str, List[int]] = {
-    "major": [0, 2, 4, 5, 7, 9, 11],       # W-W-H-W-W-W-H
-    "natural_minor": [0, 2, 3, 5, 7, 8, 10], # W-H-W-W-H-W-W
-    "harmonic_minor": [0, 2, 3, 5, 7, 8, 11],# W-H-W-W-H-WH-H
-    "melodic_minor_asc": [0, 2, 3, 5, 7, 9, 11], # W-H-W-W-W-W-H (ascending)
-}
-# Mapping of key names to their root note's MIDI pitch value (enharmonics considered).
-# Note: music21 handles key parsing robustly, this is more for reference or specific utilities.
-KEY_SIGNATURES: Dict[str, int] = { # Root note MIDI value for C as 0
-    "C": 0, "G": 7, "D": 2, "A": 9, "E": 4, "B": 11, "F#": 6, "C#": 1,
-    "F": 5, "Bb": 10, "Eb": 3, "Ab": 8, "Db": 1, "Gb": 6, "Cb": 11
-}
+# --- Fitness Function Weights (Balanced: Reference Focus + Musicality) ---
+# These weights are critical. Higher positive values indicate stronger rewards,
+# while negative values indicate penalties. The magnitude reflects importance.
 
-# --- Fitness Function Weights ---
-# These weights control the importance of different musical criteria when evaluating
-# the "goodness" of a generated melody. Higher values mean stronger influence.
+# Category 1: Core Reference Matching (Highest Priority)
+# These ensure the evolved melody structurally and fundamentally resembles the reference.
+WEIGHT_REF_EVENT_COUNT_MATCH: float = 6.0   # Strongest emphasis: matching the number of notes/rests.
+WEIGHT_REF_TOTAL_DURATION_MATCH: float = 6.0 # Strongest emphasis: matching total duration in seconds.
+WEIGHT_REF_PITCH_EXACT: float = 4.5         # Strong bonus for matching reference pitch exactly.
+WEIGHT_REF_RHYTHM_EXACT: float = 4.5        # Strong bonus for matching reference rhythm exactly.
 
-# Reference-based scores (comparing to an input MIDI, if provided)
-WEIGHT_REF_PITCH_EXACT: float = 2.0         # Bonus for matching reference pitch exactly.
-WEIGHT_REF_PITCH_CLOSE: float = 1.0         # Bonus for being close (e.g., +/- 2 semitones) to reference pitch.
-WEIGHT_REF_PITCH_PENALTY_FACTOR: float = 1.5# Multiplier for penalty if pitch is very different.
-WEIGHT_REF_RHYTHM_EXACT: float = 2.5        # Bonus for matching reference rhythm exactly.
-WEIGHT_REF_RHYTHM_CLOSE: float = 1.2        # Bonus for being close to reference rhythm (e.g., within 25%).
-WEIGHT_REF_CONTOUR_SIMILARITY: float = 0.7  # Bonus for matching the general melodic contour of the reference.
-WEIGHT_REF_QA_CHARACTER_MATCH: float = 1.5  # Bonus for matching Question/Answer phrase character of reference.
-WEIGHT_REF_QA_PHRASE_NOTE_SIMILARITY: float = 1.0 # Bonus for note similarity within matched Q/A phrases.
+# Category 2: Phrase Boundary Matching (High Priority)
+# Ensures key structural points of phrases align with the reference.
+WEIGHT_REF_PHRASE_START_PITCH_MATCH: float = 3.5 # Bonus for matching the first pitch of a corresponding phrase.
+WEIGHT_REF_PHRASE_END_PITCH_MATCH: float = 3.5   # Bonus for matching the last pitch of a corresponding phrase.
 
-# Intrinsic musicality scores (evaluating general musical qualities)
-WEIGHT_PHRASE_END_LONG_NOTE_OR_REST: float = 0.8 # Bonus for phrases ending on a longer note or rest.
-WEIGHT_PENALTY_MID_PHRASE_LONG_NOTE: float = -0.6 # Penalty for overly long notes in the middle of phrases.
-WEIGHT_MELODY_RANGE_PENALTY: float = -0.7   # Penalty for melodies exceeding a preferred compact range.
-WEIGHT_SCALE_DEGREE_RESOLUTION: float = 0.9 # Bonus for notes resolving according to tonal functions (e.g., leading tone to tonic).
-WEIGHT_STEPWISE_MOTION: float = 0.6         # Bonus for smoother, stepwise melodic motion.
-MIN_STEPWISE_MOTION_RATIO: float = 0.3      # Minimum desired ratio of stepwise movements in a melody.
-WEIGHT_LARGE_LEAP_PENALTY: float = 0.8      # Penalty factor for large melodic leaps (positive value, applied as subtraction).
-WEIGHT_OUT_OF_KEY_PENALTY: float = -2.0     # Strong penalty for notes not belonging to the current key.
-WEIGHT_EXCESSIVE_REPEATED_PITCH_PENALTY: float = 0.5 # Penalty factor for too many consecutive identical pitches.
-WEIGHT_INTERNAL_PHRASE_REPETITION: float = 0.7 # Bonus for some degree of motivic repetition/development within the melody.
+# Category 3: Penalties for Gross Mismatches with Reference (High Impact)
+PENALTY_REF_PITCH_MISMATCH: float = -2.5    # Applied when both are notes but pitches differ.
+PENALTY_REF_RHYTHM_MISMATCH: float = -2.5   # Applied when durations differ significantly.
+PENALTY_REF_NOTE_VS_REST_MISMATCH: float = -3.5 # Applied when one is a note and the other is a rest.
 
-# --- Melody Generation Parameters ---
-NOTES_PER_PHRASE_FALLBACK: int = 8 # Approximate number of notes per phrase if not guided by reference phrase durations.
-DEFAULT_PHRASE_DURATION_BEATS: float = 4.0 # Target duration for phrases in beats (e.g., 1 measure in 4/4 time).
-MAX_CONSECUTIVE_REPEATED_PITCHES: int = 3 # Maximum allowed consecutive identical pitches before penalty or change is encouraged.
-MOTIF_REPETITION_CHANCE: float = 0.25      # Probability of attempting to repeat/develop a previous motif.
-INTERNAL_PHRASE_REPETITION_CHANCE: float = 0.35 # Probability of developing a previous phrase.
-PHRASE_PUNCTUATION_CHANCE: float = 0.6     # Probability of applying punctuation (e.g., lengthening the last note) to a phrase.
-REST_PROBABILITY_GENERATION: float = 0.12  # Probability of generating a rest instead of a note.
-REST_PROBABILITY_MUTATION: float = 0.05    # Probability of a note mutating into a rest.
-PHRASE_END_MUTATION_CHANCE: float = 0.2    # Probability of mutating the end of a phrase specifically (e.g., duration).
+# Category 4: Intrinsic Musicality & Coherence (Moderate Influence)
+# These guide the melody towards generally "good" musical practices, especially
+# when reference matching scores are similar or for regions not strictly defined by the reference.
+PENALTY_OUT_OF_KEY: float = -2.0            # Penalty for notes not belonging to the current key.
+WEIGHT_SCALE_DEGREE_RESOLUTION: float = 1.0 # Rewards common tonal resolutions (e.g., 7->1).
+WEIGHT_STEPWISE_MOTION: float = 0.8         # Rewards smooth, stepwise melodic motion.
+MIN_STEPWISE_MOTION_RATIO: float = 0.35     # Target ratio of stepwise movements to total movements.
+PENALTY_LARGE_LEAPS: float = -1.5           # Penalty for large melodic leaps (applied if interval > ACCEPTABLE_LEAP_INTERVAL).
+WEIGHT_MELODY_RANGE_PENALTY: float = -1.0   # Penalty for melodies exceeding a preferred compact range.
+TARGET_MELODY_RANGE_SEMITONES: int = 18     # Preferred melodic range (approx 1.5 octaves).
+MAX_ALLOWED_MELODY_RANGE_SEMITONES: int = 28 # Harder limit for range penalty application.
+PENALTY_EXCESSIVE_REPETITION: float = -1.0  # Penalty for too many consecutive identical pitches.
+WEIGHT_MELODIC_CONTOUR_SIMILARITY: float = 1.0 # Bonus for matching the general up/down contour of reference phrases.
+
+# --- Melody Generation Parameters (for MelodyGenerator.py) ---
+# These influence how the MelodyGenerator creates and mutates melodies.
+NOTES_PER_PHRASE_FALLBACK: int = 8  # Approx notes per phrase if not guided by reference.
+DEFAULT_PHRASE_DURATION_BEATS: float = 4.0 # Target phrase duration if not guided by reference.
+MAX_CONSECUTIVE_REPEATED_PITCHES: int = 3 # Max allowed before PENALTY_EXCESSIVE_REPETITION applies.
+REST_PROBABILITY_GENERATION: float = 0.08 # Chance of generating a rest instead of a note.
+REST_PROBABILITY_MUTATION: float = 0.04   # Chance of a note mutating into a rest.
+MOTIF_REPETITION_CHANCE: float = 0.10     # Reduced to limit deviation from reference.
+INTERNAL_PHRASE_REPETITION_CHANCE: float = 0.15 # Internal phrase repetition chance. Reduced.
+PHRASE_PUNCTUATION_CHANCE: float = 0.2    # Phrase punctuation chance. Reduced.
+PHRASE_END_MUTATION_CHANCE: float = 0.05  # Phrase end mutation chance. Reduced.
+
+# --- Phrase Analysis Constants ---
+# These lists define which tonal functions (derived from scale degrees)
+# are typically associated with "questioning" (less resolved) or "answering"
+# (more resolved) phrase endings in traditional Western music theory.
+QUESTION_ENDING_NOTES_STABILITY: List[str] = ["dominant", "supertonic", "leading_tone"]
+ANSWER_ENDING_NOTES_STABILITY: List[str] = ["tonic", "mediant"]
 
 # --- Other Musical Constraints ---
-TARGET_MELODY_RANGE_SEMITONES: int = 16  # Preferred comfortable melodic range (e.g., just over two octaves).
-MAX_ALLOWED_MELODY_RANGE_SEMITONES: int = 24 # Absolute maximum melodic range (two octaves).
-MAX_LEAP_INTERVAL: int = 12             # Max allowed melodic leap in semitones (octave). Discouraged.
-ACCEPTABLE_LEAP_INTERVAL: int = 7       # Max leap considered acceptable without specific justification (Perfect 5th).
-MIN_NOTES_PER_PHRASE: int = 2           # Minimum number of notes to constitute a phrase.
+ACCEPTABLE_LEAP_INTERVAL: int = 7   # Max leap (semitones) considered acceptable without PENALTY_LARGE_LEAPS (Perfect 5th).
+MIN_NOTES_PER_PHRASE: int = 1       # Minimum notes to constitute a phrase for analysis purposes.
 
-# --- Default values if no reference MIDI is provided ---
-DEFAULT_KEY: str = "C major"            # Default key signature for generation.
-DEFAULT_SCALE_TYPE: str = "major"       # Default scale type (used if key string doesn't specify mode).
-DEFAULT_NUM_MEASURES: int = 4           # Default length in measures if generating without reference.
+# --- Default values for generation if no reference MIDI is provided ---
+DEFAULT_KEY: str = "C major"        # Default key signature if none detected.
 
-# --- Phrase Analysis Constants (used in music_utils) ---
-# These help in determining phrase characteristics like "question" or "answer".
-QUESTION_ENDING_NOTES_STABILITY: List[str] = ["dominant", "supertonic", "leading_tone"] # Scale degrees often ending questions.
-ANSWER_ENDING_NOTES_STABILITY: List[str] = ["tonic", "mediant"]       # Scale degrees often ending answers.
-SHORT_PHRASE_DURATION_THRESHOLD: float = 2.0 # Phrases shorter than this in beats might be treated differently.
-LONG_NOTE_DURATION_THRESHOLD: float = 1.5    # Notes longer than this in beats are considered "long".
-
-# For analyzing tonal functions based on scale degrees (0-11 semitones from tonic).
-TONAL_FUNCTION_MAP: Dict[int, str] = {
-    0: "Tonic", 1: "Supertonic_b2", 2: "Supertonic", 3: "Mediant_b3", 4: "Mediant",
-    5: "Subdominant", 6: "Tritone/Subdominant_#4", # Corrected for clarity
-    7: "Dominant", 8: "Submediant_b6", 9: "Submediant",
-    10: "Subtonic/Dominant_b7", 11: "Leading Tone"
-}
-
-# Print statement to confirm module loading, useful for debugging.
-# Can be commented out in production.
-print(f"--- music_constants.py (version {__import__('datetime').date.today()}) loaded ---")
+# Informative print statement upon module loading.
+print(f"--- music_constants.py (Comprehensive Fitness, v. {__import__('datetime').date.today()}) loaded ---")
